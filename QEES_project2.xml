@@ -6,6 +6,7 @@ chan battery;
 broadcast chan UHFinit, UHFdone;
 
 clock global_time;
+int globalClock = 0; // THis should be incremented every clock tick
 
 const int slew_time = 10;
 const int preheat_time = 20;
@@ -41,13 +42,73 @@ int UHFjobsskip = 0;
 
 int passed_solations = 0;
 
-int l = 100;
-int lr = 0;
-int lb = 0;
+// "interface" variables, modify these in the appropriate states
+int State = 0; // Set this variable to the appropriate state preheat (4), xband (1), lband (2) or slew (3), other states (0)
+int InSun = 1; // Set this variable to 1 if in the sun, to 0 if out of the sun
+int UHFon = 0; // Set this variable if the UHF is turned on
 
-void BatteryUpdate(int ratechange){
-	lr += ratechange;
-}</declaration><template><name>Attitude</name><declaration>clock t;</declaration><location id="id0" x="-208" y="72"><name x="-184" y="64">Lattitude</name></location><location id="id1" x="-208" y="-48"><name x="-184" y="-56">DefaultSlew</name><label kind="invariant" x="-184" y="-40">t &lt;= slew_time</label></location><location id="id2" x="-368" y="72"><name x="-384" y="80">Lslew</name><label kind="invariant" x="-384" y="96">t &lt;= 10</label></location><location id="id3" x="-528" y="72"><name x="-552" y="88">preheat</name><label kind="invariant" x="-552" y="104">t &lt;= preheat_time</label></location><location id="id4" x="-208" y="-160"><name x="-184" y="-176">Xattitude</name></location><location id="id5" x="-368" y="-160"><name x="-384" y="-208">Xslew</name><label kind="invariant" x="-384" y="-192">t &lt;= slew_time</label></location><location id="id6" x="-528" y="-48"><name x="-624" y="-80">DefaultAttitude</name></location><init ref="id6"/><transition><source ref="id1"/><target ref="id6"/><label kind="guard" x="-416" y="-72">t &gt;= slew_time</label></transition><transition><source ref="id0"/><target ref="id1"/><label kind="synchronisation" x="-200" y="0">Ldone?</label><label kind="assignment" x="-200" y="16">t = 0</label></transition><transition><source ref="id2"/><target ref="id0"/><label kind="guard" x="-328" y="56">t &gt;= 10</label></transition><transition><source ref="id3"/><target ref="id2"/><label kind="guard" x="-496" y="48">t &gt;= preheat_time</label><label kind="assignment" x="-496" y="32">t = 0</label></transition><transition><source ref="id6"/><target ref="id3"/><label kind="synchronisation" x="-568" y="-16">Linit?</label><label kind="assignment" x="-568" y="0">t = 0</label><nail x="-528" y="-8"/></transition><transition><source ref="id4"/><target ref="id1"/><label kind="synchronisation" x="-200" y="-120">Xdone?</label><label kind="assignment" x="-200" y="-104">t = 0</label></transition><transition><source ref="id5"/><target ref="id4"/><label kind="guard" x="-336" y="-160">t &gt;= slew_time</label></transition><transition><source ref="id6"/><target ref="id5"/><label kind="synchronisation" x="-512" y="-152">Xinit?</label><label kind="assignment" x="-512" y="-136">t = 0</label><nail x="-528" y="-160"/></transition></template><template><name>XScheduler</name><declaration>
+// Enumerators dont work so instead do it this way:
+const int STATE_XBAND = 1;
+const int STATE_LBAND = 2;
+const int STATE_SLEW = 3;
+const int STATE_PREHEAT = 4;
+const int STATE_NONE = 0;
+
+
+
+// THis variable holds the total battery charge available
+int[0,149760001] batState = 119808000;
+// This is the lowerbound before the model goes into deadlock, currently 45%
+int[0,149760001] lb = 67392000;
+
+// Last time the update function was run
+int lastUpdateClock = 0;
+
+void BatteryUpdate(){
+
+    // Background powerconsumption
+    int[-30000,30000] powerconsumption = 2989;
+	// Time difference since last time the function
+	int timediff = globalClock - lastUpdateClock;
+
+    /// POWER DRAIN CALCULATIONS
+    // UHF power drain
+    if(UHFon == 1){
+        powerconsumption += 2630;
+	}
+    // Other states power drain (UHF can run in parallel with any other)
+    if(State == STATE_XBAND){
+        powerconsumption += 11945;
+    }else if(State == STATE_SLEW || State == STATE_PREHEAT){
+        powerconsumption += 414;
+    }else if(State == STATE_LBAND){
+        powerconsumption == 3863;
+	}
+
+    /// POWER GENERATION CALCULATIONS
+    if(InSun == 1){ // Only works if solar panels are exposed
+        if(State == STATE_XBAND){
+            powerconsumption -= 5700;
+        }else if(State == STATE_LBAND){
+            powerconsumption -= 6100;
+	}else{
+            powerconsumption -= 5700;
+	}
+    }
+
+	/// Final calculations and clock update
+    // Update the battery capacity for the amount of time the update function wasnt run
+    batState -= powerconsumption*timediff;
+
+    // Update the variable that holds the last time the update function was run
+    lastUpdateClock = globalClock;
+}</declaration><template><name>Attitude</name><declaration>clock t;
+
+
+void resetTSetState(int statet){
+	t = 0;
+	State = statet;
+}</declaration><location id="id0" x="-32" y="72"><name x="-8" y="64">Lattitude</name></location><location id="id1" x="-32" y="-48"><name x="-8" y="-56">DefaultSlew</name><label kind="invariant" x="-8" y="-40">t &lt;= slew_time</label></location><location id="id2" x="-296" y="72"><name x="-312" y="80">Lslew</name><label kind="invariant" x="-312" y="96">t &lt;= 10</label></location><location id="id3" x="-528" y="72"><name x="-592" y="72">preheat</name><label kind="invariant" x="-632" y="88">t &lt;= preheat_time</label></location><location id="id4" x="-32" y="-160"><name x="-8" y="-176">Xattitude</name></location><location id="id5" x="-368" y="-160"><name x="-384" y="-208">Xslew</name><label kind="invariant" x="-384" y="-192">t &lt;= slew_time</label></location><location id="id6" x="-528" y="-48"><name x="-624" y="-80">DefaultAttitude</name></location><init ref="id6"/><transition><source ref="id1"/><target ref="id6"/><label kind="guard" x="-416" y="-72">t &gt;= slew_time</label><label kind="assignment" x="-424" y="-48">resetTSetState(STATE_NONE)</label></transition><transition><source ref="id0"/><target ref="id1"/><label kind="synchronisation" x="-16" y="0">Ldone?</label><label kind="assignment" x="-16" y="16">resetTSetState(STATE_SLEW)</label></transition><transition><source ref="id2"/><target ref="id0"/><label kind="guard" x="-248" y="56">t &gt;= 10</label><label kind="assignment" x="-272" y="72">resetTSetState(STATE_LBAND)</label></transition><transition><source ref="id3"/><target ref="id2"/><label kind="guard" x="-496" y="48">t &gt;= preheat_time</label><label kind="assignment" x="-512" y="72">resetTSetState(STATE_SLEW)</label></transition><transition><source ref="id6"/><target ref="id3"/><label kind="synchronisation" x="-568" y="-16">Linit?</label><label kind="assignment" x="-768" y="0">resetTSetState(STATE_PREHEAT)</label><nail x="-528" y="-8"/></transition><transition><source ref="id4"/><target ref="id1"/><label kind="synchronisation" x="-16" y="-128">Xdone?</label><label kind="assignment" x="-24" y="-112">resetTSetState(STATE_SLEW)</label></transition><transition><source ref="id5"/><target ref="id4"/><label kind="guard" x="-288" y="-176">t &gt;= slew_time</label><label kind="assignment" x="-328" y="-160">resetTSetState(STATE_XBAND)</label></transition><transition><source ref="id6"/><target ref="id5"/><label kind="synchronisation" x="-512" y="-152">Xinit?</label><label kind="assignment" x="-512" y="-136">resetTSetState(STATE_SLEW)</label><nail x="-528" y="-160"/></transition></template><template><name>XScheduler</name><declaration>
 int nextXJobStartTime(){
 	return Xjobstarts[Xjobsdone + Xjobsskip] - slew_time;
 }
@@ -64,15 +125,20 @@ int nextUHFJobStartTime(){
 
 int nextUHFJobEndTime(){
 	return UHFjobstarts[UHFjobsdone + UHFjobsskip] + UHFjobdurations[UHFjobsdone + UHFjobsskip];
+}
+
+void UHFJobDone(){
+UHFjobsdone++;
+UHFon = 0;
 }</declaration><location id="id9" x="-144" y="-8"><name x="-160" y="-56">transmission</name><label kind="invariant" x="-160" y="-40">global_time &lt;= nextUHFJobEndTime()</label></location><location id="id10" x="-456" y="-8"><name x="-472" y="-64">idle</name><label kind="invariant" x="-688" y="-48">global_time &lt;= nextUHFJobStartTime()
-&amp;&amp; cost'==1</label></location><init ref="id10"/><transition><source ref="id9"/><target ref="id10"/><label kind="guard" x="-408" y="80">global_time == nextUHFJobEndTime()</label><label kind="synchronisation" x="-408" y="96">UHFdone!</label><label kind="assignment" x="-408" y="112">UHFjobsdone++</label><nail x="-144" y="80"/><nail x="-456" y="80"/></transition><transition><source ref="id10"/><target ref="id9"/><label kind="guard" x="-432" y="-48">global_time == nextUHFJobStartTime()</label><label kind="synchronisation" x="-432" y="-32">UHFinit!</label></transition></template><template><name>LScheduler</name><parameter>int Lx</parameter><declaration>int nextLJobStartTime(){
+&amp;&amp; cost'==1</label></location><init ref="id10"/><transition><source ref="id9"/><target ref="id10"/><label kind="guard" x="-408" y="80">global_time == nextUHFJobEndTime()</label><label kind="synchronisation" x="-408" y="96">UHFdone!</label><label kind="assignment" x="-328" y="96">UHFJobDone()</label><nail x="-144" y="80"/><nail x="-456" y="80"/></transition><transition><source ref="id10"/><target ref="id9"/><label kind="guard" x="-432" y="-48">global_time == nextUHFJobStartTime()</label><label kind="synchronisation" x="-432" y="-32">UHFinit!</label><label kind="assignment" x="-352" y="-8">UHFon = 1</label></transition></template><template><name>LScheduler</name><parameter>int Lx</parameter><declaration>int nextLJobStartTime(){
 	return Ljobstarts[Lx][Ljobsdone + Ljobsskip + LjobsActive] - slew_time - preheat_time;
 }
 
 int nextLJobEndTime(){
 	return Ljobstarts[Lx][Ljobsdone + Ljobsskip] + Ljobdurations[Lx][Ljobsdone + Ljobsskip];
 }</declaration><location id="id11" x="-56" y="0"><name x="-40" y="-16">active</name><label kind="invariant" x="-40" y="0">global_time &lt;= nextLJobEndTime()</label></location><location id="id12" x="-312" y="0"><name x="-560" y="-24">idle</name><label kind="invariant" x="-560" y="-8">global_time &lt;= nextLJobStartTime()
-&amp;&amp; cost'==1</label></location><init ref="id12"/><transition><source ref="id11"/><target ref="id12"/><label kind="guard" x="-304" y="88">global_time &gt;= nextLJobEndTime()</label><label kind="synchronisation" x="-304" y="104">Ldone!</label><label kind="assignment" x="-304" y="120">Ljobsdone++ &amp;&amp;
+&amp;&amp; cost'==1</label></location><init ref="id12"/><transition><source ref="id11"/><target ref="id12"/><label kind="guard" x="-304" y="88">global_time &gt;= nextLJobEndTime()</label><label kind="synchronisation" x="-304" y="104">Ldone!</label><label kind="assignment" x="-304" y="120">Ljobsdone++ &amp;
 LjobsActive--</label><nail x="-56" y="88"/><nail x="-312" y="88"/></transition><transition><source ref="id12"/><target ref="id11"/><label kind="guard" x="-288" y="-40">global_time &gt;= nextLJobStartTime()</label><label kind="synchronisation" x="-288" y="-56">Linit!</label><label kind="assignment" x="-244" y="0">LjobsActive++</label></transition><transition><source ref="id12"/><target ref="id12"/><label kind="guard" x="-448" y="-168">global_time &gt;= nextLJobStartTime()</label><label kind="assignment" x="-448" y="-152">Ljobsskip = Ljobsskip + 1</label><nail x="-448" y="-120"/><nail x="-312" y="-120"/></transition></template><template><name>Insolation</name><declaration>int battery = 80;
 
 int nextInsolationStartTime(){
@@ -81,7 +147,17 @@ int nextInsolationStartTime(){
 
 int nextInsolationEndTime(){
 	return Sunstarts[passed_solations] + Sundurations[passed_solations];
-}</declaration><location id="id13" x="-312" y="24"><name x="-296" y="0">Eclipse</name><label kind="invariant" x="-296" y="16">global_time &lt;= nextInsolationEndTime()</label></location><location id="id14" x="-648" y="24"><name x="-688" y="0">Sun</name><label kind="invariant" x="-912" y="16">global_time &lt;= nextInsolationStartTime()</label></location><init ref="id14"/><transition><source ref="id13"/><target ref="id14"/><label kind="guard" x="-640" y="120">global_time &gt;= nextInsolationEndTime()</label><label kind="assignment" x="-640" y="136">passed_solations++</label><nail x="-312" y="120"/><nail x="-648" y="120"/></transition><transition><source ref="id14"/><target ref="id13"/><label kind="guard" x="-608" y="0">global_time &gt;= nextInsolationStartTime()</label></transition></template><template><name>Ender</name><declaration>int[0, END] stop_time = END - (preheat_time + slew_time + 1);</declaration><location id="id15" x="-352" y="-72"><name x="-362" y="-102">go_to_deadlock</name><committed/></location><location id="id16" x="-672" y="-72"><name x="-682" y="-102">active</name><label kind="invariant" x="-682" y="-57">global_time &lt;= stop_time</label></location><init ref="id16"/><transition><source ref="id16"/><target ref="id15"/><label kind="guard" x="-572" y="-102">global_time &gt;= stop_time</label></transition></template><template><name>Battery</name><location id="id17" x="64" y="-64"><name x="54" y="-94">Depletion</name><committed/></location><location id="id18" x="-64" y="-64"><name x="-64" y="-96">check</name><committed/></location><location id="id19" x="-240" y="-64"><name x="-256" y="-48">Idle</name></location><location id="id20" x="-368" y="-64"><name x="-378" y="-94">Init</name><committed/></location><init ref="id20"/><transition><source ref="id18"/><target ref="id17"/><label kind="guard" x="-16" y="-64">l &lt; lb</label></transition><transition><source ref="id18"/><target ref="id19"/><label kind="guard" x="-176" y="-128">l &gt; lb</label><nail x="-64" y="-128"/><nail x="-240" y="-128"/></transition><transition><source ref="id19"/><target ref="id18"/><label kind="synchronisation" x="-208" y="-64">battery?</label><label kind="assignment" x="-208" y="-48">BatteryUpdate(10)</label></transition><transition><source ref="id20"/><target ref="id19"/></transition></template><system>// Place template instantiations here.
+}
+
+void praiseTheSun(){
+passed_solations++;
+InSun = 1;
+}</declaration><location id="id13" x="-312" y="24"><name x="-296" y="0">Eclipse</name><label kind="invariant" x="-296" y="16">global_time &lt;= nextInsolationEndTime()</label></location><location id="id14" x="-648" y="24"><name x="-688" y="0">Sun</name><label kind="invariant" x="-912" y="16">global_time &lt;= nextInsolationStartTime()</label></location><init ref="id14"/><transition><source ref="id13"/><target ref="id14"/><label kind="guard" x="-640" y="120">global_time &gt;= nextInsolationEndTime()</label><label kind="assignment" x="-640" y="136">praiseTheSun()</label><nail x="-312" y="120"/><nail x="-648" y="120"/></transition><transition><source ref="id14"/><target ref="id13"/><label kind="guard" x="-608" y="0">global_time &gt;= nextInsolationStartTime()</label><label kind="assignment" x="-540" y="24">InSun = 0</label></transition></template><template><name>Ender</name><declaration>int[0, END] stop_time = END - (preheat_time + slew_time + 1);</declaration><location id="id15" x="-352" y="-72"><name x="-362" y="-102">go_to_deadlock</name><committed/></location><location id="id16" x="-672" y="-72"><name x="-682" y="-102">active</name><label kind="invariant" x="-682" y="-57">global_time &lt;= stop_time</label></location><init ref="id16"/><transition><source ref="id16"/><target ref="id15"/><label kind="guard" x="-572" y="-102">global_time &gt;= stop_time</label></transition></template><template><name>Battery</name><location id="id17" x="64" y="-64"><name x="54" y="-94">Depletion</name><committed/></location><location id="id18" x="-64" y="-64"><name x="-64" y="-96">check</name><committed/></location><location id="id19" x="-240" y="-64"><name x="-256" y="-48">Idle</name></location><location id="id20" x="-368" y="-64"><name x="-378" y="-94">Init</name><committed/></location><init ref="id20"/><transition><source ref="id18"/><target ref="id17"/><label kind="guard" x="-40" y="-64">batState &lt; lb</label></transition><transition><source ref="id18"/><target ref="id19"/><label kind="guard" x="-200" y="-128">batState &gt; lb</label><nail x="-64" y="-128"/><nail x="-240" y="-128"/></transition><transition><source ref="id19"/><target ref="id18"/><label kind="synchronisation" x="-208" y="-64">battery?</label><label kind="assignment" x="-208" y="-48">BatteryUpdate()</label></transition><transition><source ref="id20"/><target ref="id19"/></transition></template><template><name>clockupdate</name><declaration>clock t;
+
+void increaseClock(){
+globalClock++;
+t=0;
+}</declaration><location id="id21" x="-200" y="-112"><label kind="invariant" x="-208" y="-96">t&lt;=1</label></location><init ref="id21"/><transition><source ref="id21"/><target ref="id21"/><label kind="guard" x="-88" y="-128">t&gt;=1</label><label kind="assignment" x="-88" y="-88">increaseClock()</label><nail x="-96" y="-192"/><nail x="-96" y="-24"/></transition></template><system>// Place template instantiations here.
 Att = Attitude();
 XS = XScheduler();
 L1S = LScheduler(0);
